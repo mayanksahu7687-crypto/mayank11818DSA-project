@@ -1,0 +1,448 @@
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Scanner;
+
+/*
+ * Product Recommendation Engine
+ * Language : Java (single .java file, run from the console)
+ * Concepts : ArrayList, HashMap, Searching, Sorting, Methods, File Handling
+ *
+ * How to run:
+ *   javac ProductRecommendationEngine.java
+ *   java ProductRecommendationEngine
+ *
+ * Data is stored in products.txt (one product per line):
+ *   ID,Name,Category,Price,TotalRating,RatingCount
+ *   e.g. PRD101,Wireless Mouse,Electronics,799,9,2
+ */
+
+// ---------------------------------------------------------------------------
+// ProductRecommendationEngine : menu (main class)
+// ---------------------------------------------------------------------------
+public class ProductRecommendationEngine {
+
+    private static final Scanner sc = new Scanner(System.in);
+    private static final RecommendationManager manager = new RecommendationManager();
+
+    public static void main(String[] args) {
+        manager.loadFromFile();
+        boolean running = true;
+        while (running) {
+            showMenu();
+            String line = readLine("Enter choice: ");
+            if (line == null) {          // input ended (for example Ctrl+D) -> save and quit
+                break;
+            }
+            switch (readChoice(line)) {
+                case 1: addProduct(); break;
+                case 2: rateProduct(); break;
+                case 3: searchProduct(); break;
+                case 4: recommend(); break;
+                case 5: running = false; break;
+                default:
+                    System.out.println("Invalid choice. Enter a number from 1 to 5.");
+            }
+        }
+        manager.saveToFile();
+        System.out.println("Data saved to products.txt. Goodbye!");
+    }
+
+    private static void showMenu() {
+        System.out.println();
+        System.out.println("========== PRODUCT RECOMMENDATION ENGINE ==========");
+        System.out.println("1. Add Product");
+        System.out.println("2. Rate Product (1-5)");
+        System.out.println("3. Search Product");
+        System.out.println("4. Recommend Products");
+        System.out.println("5. Exit");
+    }
+
+    private static int readChoice(String line) {
+        try {
+            return Integer.parseInt(line.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    // prints a prompt and returns the typed line (null if there is no more input)
+    private static String readLine(String prompt) {
+        System.out.print(prompt);
+        if (!sc.hasNextLine()) {
+            System.out.println();
+            return null;
+        }
+        return sc.nextLine();
+    }
+
+    // ---------------- menu actions ----------------
+
+    private static void addProduct() {
+        String name = readLine("Enter product name: ");
+        if (name == null) return;
+        name = name.trim();
+        if (name.isEmpty()) {
+            System.out.println("Name cannot be empty.");
+            return;
+        }
+        if (name.contains(",")) {
+            System.out.println("Name cannot contain a comma.");
+            return;
+        }
+
+        String category = readLine("Enter category: ");
+        if (category == null) return;
+        category = category.trim();
+        if (category.isEmpty()) {
+            System.out.println("Category cannot be empty.");
+            return;
+        }
+        if (category.contains(",")) {
+            System.out.println("Category cannot contain a comma.");
+            return;
+        }
+
+        String priceText = readLine("Enter price (whole rupees): ");
+        if (priceText == null) return;
+        int price;
+        try {
+            price = Integer.parseInt(priceText.trim());
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid price. Enter a whole number above 0.");
+            return;
+        }
+        if (price <= 0) {
+            System.out.println("Invalid price. Enter a whole number above 0.");
+            return;
+        }
+
+        Product p = manager.addProduct(name, category, price);
+        System.out.println("Product added. " + manager.counts(p));
+    }
+
+    private static void rateProduct() {
+        String id = readLine("Enter product ID: ");
+        if (id == null) return;
+        String text = readLine("Enter rating (1-5): ");
+        if (text == null) return;
+        int rating;
+        try {
+            rating = Integer.parseInt(text.trim());
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid rating. Enter a number from 1 to 5.");
+            return;
+        }
+        if (rating < 1 || rating > 5) {
+            System.out.println("Invalid rating. Enter a number from 1 to 5.");
+            return;
+        }
+        Product p = manager.addRating(id, rating);
+        if (p == null) {
+            System.out.println("Product not found.");
+        } else {
+            System.out.println("Rating added. " + manager.counts(p));
+        }
+    }
+
+    private static void searchProduct() {
+        String key = readLine("Enter product ID or name: ");
+        if (key == null) return;
+        if (key.trim().isEmpty()) {
+            System.out.println("Please enter an ID or a name.");
+            return;
+        }
+        Product p = manager.search(key);
+        if (p == null) {
+            System.out.println("Product not found.");
+        } else {
+            System.out.println("Found: " + manager.describe(p));
+        }
+    }
+
+    private static void recommend() {
+        String category = readLine("Enter category (press Enter for all): ");
+        if (category == null) return;
+        manager.generateRecommendations(category.trim());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Product : one product record
+// ---------------------------------------------------------------------------
+class Product {
+    private final String id;
+    private final String name;
+    private final String category;
+    private final int price;
+    private int totalRating;
+    private int ratingCount;
+
+    Product(String id, String name, String category, int price, int totalRating, int ratingCount) {
+        this.id = id;
+        this.name = name;
+        this.category = category;
+        this.price = price;
+        this.totalRating = totalRating;
+        this.ratingCount = ratingCount;
+    }
+
+    String getId() { return id; }
+    String getName() { return name; }
+    String getCategory() { return category; }
+    int getPrice() { return price; }
+    int getTotalRating() { return totalRating; }
+    int getRatingCount() { return ratingCount; }
+
+    void addRating(int rating) {
+        totalRating += rating;
+        ratingCount++;
+    }
+
+    boolean hasRatings() {
+        return ratingCount > 0;
+    }
+
+    // average rating = total rating / number of ratings
+    double getAverage() {
+        if (!hasRatings()) {
+            return 0.0;
+        }
+        return (double) totalRating / ratingCount;
+    }
+
+    String formatAverage() {
+        return String.format(Locale.US, "%.2f", getAverage());
+    }
+
+    String getLabel() {
+        double a = getAverage();
+        if (a >= 4.5) return "Highly Recommended";
+        if (a >= 3.5) return "Recommended";
+        if (a >= 2.5) return "Average";
+        return "Not Recommended";
+    }
+
+    // line stored in products.txt
+    String toFileString() {
+        return id + "," + name + "," + category + "," + price + "," + totalRating + "," + ratingCount;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RecommendationManager : ArrayList + HashMap + file handling + searching/sorting
+// ---------------------------------------------------------------------------
+class RecommendationManager {
+    private static final String FILE_NAME = "products.txt";
+    private static final int FIRST_ID = 101;
+    private static final int TOP_N = 5;   // how many products the recommendation list shows
+
+    private final ArrayList<Product> productList = new ArrayList<>();
+    private final HashMap<String, Product> productMap = new HashMap<>();
+    private int nextId = FIRST_ID;
+
+    // ---------------- file handling ----------------
+
+    // Load data from the file at start. A missing file just means "no data yet".
+    void loadFromFile() {
+        File file = new File(FILE_NAME);
+        if (!file.exists()) {
+            return;
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                String[] parts = line.split(",");
+                if (parts.length != 6) {
+                    continue;                      // skip a damaged line
+                }
+                try {
+                    String id = parts[0].trim().toUpperCase();
+                    String name = parts[1].trim();
+                    String category = parts[2].trim();
+                    int price = Integer.parseInt(parts[3].trim());
+                    int total = Integer.parseInt(parts[4].trim());
+                    int count = Integer.parseInt(parts[5].trim());
+                    if (!id.startsWith("PRD") || productMap.containsKey(id)
+                            || name.isEmpty() || category.isEmpty() || price <= 0
+                            || total < 0 || count < 0 || total < count || total > count * 5) {
+                        continue;
+                    }
+                    Product p = new Product(id, name, category, price, total, count);
+                    productList.add(p);
+                    productMap.put(id, p);
+                    int number = Integer.parseInt(id.substring(3));
+                    if (number >= nextId) {
+                        nextId = number + 1;
+                    }
+                } catch (NumberFormatException ex) {
+                    // skip a line with bad numbers
+                }
+            }
+        } catch (IOException ex) {
+            System.out.println("Could not read " + FILE_NAME + ": " + ex.getMessage());
+        }
+    }
+
+    // Save every product to the file (called on exit).
+    void saveToFile() {
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_NAME))) {
+            for (int i = 0; i < productList.size(); i++) {
+                bw.write(productList.get(i).toFileString());
+                bw.newLine();
+            }
+        } catch (IOException ex) {
+            System.out.println("Could not save " + FILE_NAME + ": " + ex.getMessage());
+        }
+    }
+
+    // ---------------- features ----------------
+
+    // 1 - Add Product
+    Product addProduct(String name, String category, int price) {
+        String id = "PRD" + nextId;
+        nextId++;
+        Product p = new Product(id, name, category, price, 0, 0);
+        productList.add(p);        // ArrayList keeps the order
+        productMap.put(id, p);     // HashMap gives quick lookup by ID
+        return p;
+    }
+
+    // 2 - Rate Product. Returns the product, or null if the ID does not exist.
+    // The caller must already have checked that the rating is from 1 to 5.
+    Product addRating(String id, int rating) {
+        Product p = searchById(id);
+        if (p == null) {
+            return null;
+        }
+        p.addRating(rating);
+        return p;
+    }
+
+    // 3a - Search by ID : HashMap lookup, O(1) on average
+    Product searchById(String id) {
+        return productMap.get(id.trim().toUpperCase());
+    }
+
+    // 3b - Search by name : our own linear search over the list, O(n)
+    Product searchByName(String name) {
+        String key = name.trim().toLowerCase();
+        for (int i = 0; i < productList.size(); i++) {
+            Product p = productList.get(i);
+            if (p.getName().toLowerCase().equals(key)) {
+                return p;
+            }
+        }
+        // no exact match: try part of a name (for example "mouse")
+        for (int i = 0; i < productList.size(); i++) {
+            Product p = productList.get(i);
+            if (p.getName().toLowerCase().contains(key)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    // Search by ID first, otherwise by name
+    Product search(String key) {
+        Product p = searchById(key);
+        if (p == null) {
+            p = searchByName(key);
+        }
+        return p;
+    }
+
+    // 4 - Recommend Products (category "" means all categories)
+    void generateRecommendations(String category) {
+        if (productList.isEmpty()) {
+            System.out.println("No products added yet.");
+            return;
+        }
+        // work on a copy so the original (ID) order in the file never changes
+        ArrayList<Product> view = new ArrayList<>();
+        String key = category.toLowerCase();
+        for (int i = 0; i < productList.size(); i++) {
+            Product p = productList.get(i);
+            if (key.isEmpty() || p.getCategory().toLowerCase().equals(key)) {
+                view.add(p);
+            }
+        }
+        if (view.isEmpty()) {
+            System.out.println("No products found in category " + category + ".");
+            return;
+        }
+        sortByRating(view);
+        System.out.println("------------- RECOMMENDED PRODUCTS -------------");
+        int shown = Math.min(TOP_N, view.size());
+        for (int i = 0; i < shown; i++) {
+            System.out.println((i + 1) + ". " + describe(view.get(i)));
+        }
+        System.out.println("------------------------------------------------");
+    }
+
+    // ---------------- helpers ----------------
+
+    // Own selection sort (no Collections.sort / Arrays.sort):
+    // highest average first, unrated products last, ties: more ratings first, then lower ID.
+    private void sortByRating(ArrayList<Product> list) {
+        for (int i = 0; i < list.size() - 1; i++) {
+            int best = i;
+            for (int j = i + 1; j < list.size(); j++) {
+                if (comesBefore(list.get(j), list.get(best))) {
+                    best = j;
+                }
+            }
+            if (best != i) {
+                Product temp = list.get(i);
+                list.set(i, list.get(best));
+                list.set(best, temp);
+            }
+        }
+    }
+
+    // true if a should be listed before b
+    private boolean comesBefore(Product a, Product b) {
+        if (a.hasRatings() != b.hasRatings()) {
+            return a.hasRatings();                 // rated first, "no ratings" last
+        }
+        if (a.getAverage() != b.getAverage()) {
+            return a.getAverage() > b.getAverage();
+        }
+        if (a.getRatingCount() != b.getRatingCount()) {
+            return a.getRatingCount() > b.getRatingCount();
+        }
+        return idNumber(a) < idNumber(b);          // equal -> lower ID first
+    }
+
+    private int idNumber(Product p) {
+        return Integer.parseInt(p.getId().substring(3));
+    }
+
+    // One-line description used by Recommend and Search
+    String describe(Product p) {
+        String start = p.getId() + " | " + p.getName() + " | " + p.getCategory()
+                + " | Rs. " + p.getPrice();
+        if (!p.hasRatings()) {
+            return start + " | No ratings yet";
+        }
+        return start + " | Ratings: " + p.getRatingCount()
+                + " | Average: " + p.formatAverage()
+                + " | " + p.getLabel();
+    }
+
+    String counts(Product p) {
+        return p.getId() + " | " + p.getName() + " | " + p.getCategory()
+                + " | Rs. " + p.getPrice()
+                + " | Ratings: " + p.getRatingCount() + " | Total: " + p.getTotalRating();
+    }
+}
